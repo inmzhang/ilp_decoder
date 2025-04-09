@@ -147,11 +147,11 @@ class ILPDecoder:
             Its length is equal to the number of observables in the `stim.Circuit` or `stim.DetectorErrorModel`.
             `predictions[i]` is 1 if the decoder predicts observable `i` was flipped and 0 otherwise.
         """
-        decoded_errors = self.decode_return_error(syndrome)
+        decoded_errors = self.decode_return_errors(syndrome)
         predicted_obs = (self._obs_matrix @ decoded_errors) % 2
         return predicted_obs.astype(np.bool_)
 
-    def decode_return_error(
+    def decode_return_errors(
         self, syndrome: npt.NDArray[np.bool_]
     ) -> npt.NDArray[np.uint8]:
         """
