@@ -32,8 +32,6 @@ class ILPSinterDecoder(Decoder):
 
         Parameters
         ----------
-        model : stim.DetectorErrorModel
-            The detector error model of the stim circuit to be decoded
         solver : the solver to use for the ILP. The default is "HIGHS".
         solve_kwargs
             Additional keyword arguments are passed to `cvxpy.Problem.solve()`. See
@@ -45,8 +43,8 @@ class ILPSinterDecoder(Decoder):
     def compile_decoder_for_dem(
         self, *, dem: stim.DetectorErrorModel
     ) -> CompiledDecoder:
-        ilp = ILPDecoder(
-            model=dem,
+        ilp = ILPDecoder.from_detector_error_model(
+            dem,
             solver=self._solver,
             **self._solve_kwargs,
         )
@@ -93,8 +91,8 @@ class ILPSinterDecoder(Decoder):
                 via sinter deleting this directory after killing the decoder.
         """
         dem = stim.DetectorErrorModel.from_file(dem_path)
-        ilp = ILPDecoder(
-            model=dem,
+        ilp = ILPDecoder.from_detector_error_model(
+            dem,
             solver=self._solver,
             **self._solve_kwargs,
         )

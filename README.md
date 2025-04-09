@@ -2,7 +2,7 @@
 
 An implementation of the ILP decoder for circuit-level noise.
 
-Included is a `ilp_decoder.ILPDecoder` class that is configured using a `stim.DetectorErrorModel` and decodes shot data, directly outputting predicted observables (without sinter), as well as a `ilp_decoder.ILPSinterDecoder` class, which subclasses `sinter.Decoder`, for interfacing with sinter.
+Included is a `ilp_decoder.ILPDecoder` class that can be configured using a `stim.DetectorErrorModel` and decodes shot data, directly outputting predicted observables (without sinter), as well as a `ilp_decoder.ILPSinterDecoder` class, which subclasses `sinter.Decoder`, for interfacing with sinter.
 
 ## Installation
 
@@ -45,7 +45,7 @@ circuit = stim.Circuit.generated(
 sampler = circuit.compile_detector_sampler()
 shots, observables = sampler.sample(num_shots, separate_observables=True)
 
-decoder = ILPDecoder(circuit)
+decoder = ILPDecoder.from_circuit(circuit)
 
 predicted_observables = decoder.decode_batch(shots)
 num_mistakes = np.sum(np.any(predicted_observables != observables, axis=1))

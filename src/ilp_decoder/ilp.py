@@ -1,6 +1,7 @@
 import numpy as np
 import numpy.typing as npt
 import cvxpy as cp
+from scipy.sparse import csc_matrix
 import stim
 
 from ilp_decoder.utils import DemMatrices, detector_error_model_to_check_matrices
@@ -9,44 +10,48 @@ from ilp_decoder.utils import DemMatrices, detector_error_model_to_check_matrice
 class ILPDecoder:
     def __init__(
         self,
-        model: stim.Circuit | stim.DetectorErrorModel,
-        *,
+        check_matrix: csc_matrix,
+        obs_matrix: csc_matrix,
+        error_probs: npt.NDArray[np.float_],
         solver: str = "HIGHS",
         **kwargs,
     ) -> None:
-        """Construct a ILPDecoder object from a `stim.Circuit` or `stim.DetectorErrorModel`
+        """Construct a ILPDecoder object from a detector check matrix, observable matrix,
+        and error probabilities vector.
 
         Parameters
         ----------
-        model : stim.Circuit or stim.DetectorErrorModel
-            A stim.Circuit or a stim.DetectorErrorModel. If a stim.Circuit is provided, it will be converted
-            into a stim.DetectorErrorModel using `stim.Circuit.detector_error_model(decompose_errors=False)`.
+        check_matrix : csc_matrix
+            The detector check matrix of the code. This is a sparse matrix in Compressed Sparse Column format.
+            It should have shape `(num_detectors, num_errors)` with dtype `np.uint8`.
+        obs_matrix : csc_matrix
+            The observable matrix of the code. This is a sparse matrix in Compressed Sparse Column format.
+            It should have shape `(num_observables, num_errors)` with dtype `np.uint8`.
+        error_probs : np.ndarray
+            A 1D numpy array of length `num_errors` containing the error probabilities for each error.
+
         solver : the solver to use for the ILP. The default is "HIGHS".
         kwargs
             Additional keyword arguments are passed to `cvxpy.Problem.solve()`. See
             https://www.cvxpy.org/tutorial/solvers/index.html for more information.
         """
-        # Convert a stim Circuit into a DetectorErrorModel if needed.
-        if isinstance(model, stim.Circuit):
-            model = model.detector_error_model(decompose_errors=False)
-
         self._solver = solver
         self._solve_kwargs = kwargs
-        self._matrices: DemMatrices = detector_error_model_to_check_matrices(
-            model, allow_undecomposed_hyperedges=True
-        )
-        check_matrix = self._matrices.check_matrix
-        self._num_detectors: int = check_matrix.shape[0]
+
+        num_detectors = check_matrix.shape[0]
+        self._num_detectors = num_detectors
+        self._obs_matrix = obs_matrix
+
         num_errors: int = check_matrix.shape[1]
 
         # Define decision variables:
         #   - self._errors: binary indicator for each error.
         #   - slack_vars: integer slack variables for each detector row.
         self._errors = cp.Variable(num_errors, boolean=True)
-        dets = cp.Variable(self._num_detectors, integer=True)
+        dets = cp.Variable(num_detectors, integer=True)
 
         # Define a parameter for the syndrome to be updated during decoding.
-        self._syndromes = cp.Parameter(self._num_detectors, boolean=True)
+        self._syndromes = cp.Parameter(num_detectors, boolean=True)
 
         # Set up the parity constraints for each detector.
         # For each detector d, the parity constraint is:
@@ -57,14 +62,72 @@ class ILPDecoder:
                 + 2 * dets[d]
                 == self._syndromes[d]
             )
-            for d in range(self._num_detectors)
+            for d in range(num_detectors)
         ]
 
         # Define the objective using error likelihoods.
         # The weight for each error is computed as log((1 - p) / p) where p is the error probability.
-        error_wts = np.array([np.log((1 - p) / p) for p in self._matrices.priors])
+        error_wts = np.array([np.log((1 - p) / p) for p in error_probs])
         objective = cp.Minimize(error_wts @ self._errors)
         self._problem = cp.Problem(objective, constraints)  # type: ignore
+
+    @staticmethod
+    def from_detector_error_model(
+        dem: stim.DetectorErrorModel,
+        *,
+        solver: str = "HIGHS",
+        **kwargs,
+    ) -> "ILPDecoder":
+        """Construct a ILPDecoder object from a stim.DetectorErrorModel.
+
+        Parameters
+        ----------
+        dem : stim.DetectorErrorModel used to construct the decoder.
+        solver : the solver to use for the ILP. The default is "HIGHS".
+        kwargs
+            Additional keyword arguments are passed to `cvxpy.Problem.solve()`. See
+            https://www.cvxpy.org/tutorial/solvers/index.html for more information.
+
+        Returns
+        -------
+        ILPDecoder
+            An ILPDecoder object initialized with the provided stim.DetectorErrorModel.
+        """
+        dem_matrices: DemMatrices = detector_error_model_to_check_matrices(
+            dem, allow_undecomposed_hyperedges=True
+        )
+        return ILPDecoder(
+            check_matrix=dem_matrices.check_matrix,
+            obs_matrix=dem_matrices.observables_matrix,
+            error_probs=dem_matrices.priors,
+            solver=solver,
+            **kwargs,
+        )
+
+    @staticmethod
+    def from_circuit(
+        circuit: stim.Circuit,
+        *,
+        solver: str = "HIGHS",
+        **kwargs,
+    ) -> "ILPDecoder":
+        """Construct a ILPDecoder object from a stim.Circuit.
+
+        Parameters
+        ----------
+        circuit : stim.Circuit used to construct the decoder.
+        solver : the solver to use for the ILP. The default is "HIGHS".
+        kwargs
+            Additional keyword arguments are passed to `cvxpy.Problem.solve()`. See
+            https://www.cvxpy.org/tutorial/solvers/index.html for more information.
+
+        Returns
+        -------
+        ILPDecoder
+            An ILPDecoder object initialized with the provided stim.Circuit.
+        """
+        dem = circuit.detector_error_model(decompose_errors=False)
+        return ILPDecoder.from_detector_error_model(dem, solver=solver, **kwargs)
 
     def decode(self, syndrome: npt.NDArray[np.bool_]) -> npt.NDArray[np.bool_]:
         """
@@ -97,7 +160,7 @@ class ILPDecoder:
             )
         # Retrieve the errors solution vector. Use vectorized rounding for efficiency.
         decoded_errors = np.array(np.round(self._errors.value), dtype=np.uint8)  # type: ignore
-        predicted_obs = (self._matrices.observables_matrix @ decoded_errors) % 2
+        predicted_obs = (self._obs_matrix @ decoded_errors) % 2
         return predicted_obs.astype(np.bool_)
 
     def decode_batch(
@@ -137,9 +200,7 @@ class ILPDecoder:
                 :, : self._num_detectors
             ]
         shots = shots.astype(np.bool_)
-        predictions = np.zeros(
-            (shots.shape[0], self._matrices.observables_matrix.shape[0]), dtype=bool
-        )
+        predictions = np.zeros((shots.shape[0], self._obs_matrix.shape[0]), dtype=bool)
         for i in range(shots.shape[0]):
             predictions[i, :] = self.decode(shots[i, :])
         if bit_packed_predictions:
