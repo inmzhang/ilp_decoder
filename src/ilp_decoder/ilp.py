@@ -147,6 +147,30 @@ class ILPDecoder:
             Its length is equal to the number of observables in the `stim.Circuit` or `stim.DetectorErrorModel`.
             `predictions[i]` is 1 if the decoder predicts observable `i` was flipped and 0 otherwise.
         """
+        decoded_errors = self.decode_return_error(syndrome)
+        predicted_obs = (self._obs_matrix @ decoded_errors) % 2
+        return predicted_obs.astype(np.bool_)
+
+    def decode_return_error(
+        self, syndrome: npt.NDArray[np.bool_]
+    ) -> npt.NDArray[np.uint8]:
+        """
+        Decode the syndrome and return a the predicted errors.
+
+        Parameters
+        ----------
+        syndrome : np.ndarray
+            A single shot of syndrome data. This should be a binary array with a length equal to the
+            number of detectors in the `stim.Circuit` or `stim.DetectorErrorModel`. E.g. the syndrome might be
+            one row of shot data sampled from a `stim.CompiledDetectorSampler`.
+
+        Returns
+        -------
+        np.ndarray
+            A numpy array `predictions` which predicts which errors were flipped.
+            Its length is equal to the number of errors in the `stim.Circuit` or `stim.DetectorErrorModel`.
+            `predictions[i]` is 1 if the decoder predicts error `i` was flipped and 0 otherwise.
+        """
         # Set the syndrome parameter.
         self._syndromes.value = syndrome
 
@@ -158,10 +182,8 @@ class ILPDecoder:
             raise ValueError(
                 f"ILP did not solve optimally. Status: {self._problem.status}"
             )
-        # Retrieve the errors solution vector. Use vectorized rounding for efficiency.
         decoded_errors = np.array(np.round(self._errors.value), dtype=np.uint8)  # type: ignore
-        predicted_obs = (self._obs_matrix @ decoded_errors) % 2
-        return predicted_obs.astype(np.bool_)
+        return decoded_errors
 
     def decode_batch(
         self,
