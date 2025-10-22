@@ -1,6 +1,6 @@
 [project]
 name = "ilp-decoder"
-version = "0.2.1"
+version = "0.2.2"
 description = "An implementation of ILP decoders for quantum error correction."
 readme = "README.md"
 authors = [{ name = "Yiming Zhang", email = "zhangyiming21@mail.ustc.edu.cn" }]
