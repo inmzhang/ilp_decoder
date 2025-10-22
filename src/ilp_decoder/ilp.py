@@ -12,7 +12,7 @@ class ILPDecoder:
         self,
         check_matrix: csc_matrix,
         obs_matrix: csc_matrix,
-        error_probs: npt.NDArray[np.float_],
+        error_probs: npt.NDArray[np.float64],
         solver: str = "HIGHS",
         **kwargs,
     ) -> None:
